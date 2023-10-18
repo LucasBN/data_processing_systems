@@ -1,65 +1,85 @@
 #include <iostream>
 #include <set>
 #include <string>
-#include <tuple>
+#include <variant>
+#include <vector>
 
 using namespace std;
 
-/* ------------------------------------------------ */
-/* Tuple Helper Functions                           */
-/* ------------------------------------------------ */
-template <unsigned... s>
-struct seq {
-  typedef seq<s...> type;
+typedef variant<int, string> entry;
+
+struct entry_string {
+  std::string operator()(const std::string &x) const { return x; }
+  std::string operator()(int x) const { return std::to_string(x); }
 };
-template <unsigned max, unsigned... s>
-struct make_seq : make_seq<max - 1, max - 1, s...> {};
-template <unsigned... s>
-struct make_seq<0, s...> : seq<s...> {};
 
-template <unsigned... s, typename Tuple>
-auto extract_tuple(seq<s...>, Tuple& tup) {
-  return make_tuple(get<s>(tup)...);
-}
-/* ------------------------------------------------ */
-
-template <typename... types>
 struct Relation {
-  using OutputType = tuple<types...>;
-  array<string, sizeof...(types)> schema;
+  using OutputType = vector<entry>;
+  vector<string> schema;
   set<OutputType> data;
 
   Relation(){};
-  Relation(array<string, sizeof...(types)> schema)
-      : schema(schema), data(set<OutputType>()){};
-  Relation(array<string, sizeof...(types)> schema, set<OutputType> data)
+  Relation(vector<string> schema) : schema(schema), data({}){};
+  Relation(vector<string> schema, set<OutputType> data)
       : schema(schema), data(data){};
+
+  /* Pretty print relation in CSV format. */
+  void print() {
+    for (string label : schema) {
+      cout << label << ", ";
+    }
+    cout << "\n";
+    for (OutputType row : data) {
+      for (entry cell : row) {
+        cout << visit(entry_string(), cell) << ", ";
+      }
+      cout << "\n";
+    }
+  }
 };
 
-template <typename... types>
-struct Operator : public Relation<types...> {
+struct Operator : public Relation {
   Operator(){};
-  Operator(array<string, sizeof...(types)> schema)
-      : Relation<types...>(schema){};
+  Operator(vector<string> schema) : Relation(schema){};
 };
 
-template <typename InputOperator, typename... types>
-struct Project : public Operator<types...> {
-  using OutputType = tuple<types...>;
+struct Project : public Operator {
+  using OutputType = vector<entry>;
 
-  InputOperator input;
+  Relation input;
   set<pair<string, string>> projections;
 
-  Project(InputOperator input, set<pair<string, string>> projections)
+  Project(Relation input, set<pair<string, string>> projections)
       : input(input), projections(projections) {
-    array<string, sizeof...(types)> schema = {};
+    vector<string> schema = {};
     set<OutputType> data;
 
     /* Define new schema based on given projection and keep the
        corresponding columns. */
-    int i = 0;
+    vector<int> indicies = {};
     for (pair<string, string> projection : projections) {
-      schema[i] = projection.second;
+      /* Add projected label to schema vector. */
+      schema.push_back(projection.second);
+
+      /* Find the index corresponding to the column which is to
+       * be projected. */
+      int i = 0;
+      for (string label : input.schema) {
+        if (strcmp(label.c_str(), projection.first.c_str()) == 0) {
+          indicies.push_back(i);
+          break;
+        }
+        i++;
+      }
+    }
+
+    /* Extract the projected columns using the indicies found above. */
+    for (OutputType row : input.data) {
+      OutputType newRow = {};
+      for (int index : indicies) {
+        newRow.push_back(row[index]);
+      }
+      data.insert(newRow);
     }
 
     /* Set parent struct attributes according to projection. */
@@ -69,18 +89,15 @@ struct Project : public Operator<types...> {
 };
 
 int main() {
-  Relation<int, string> users({"id", "name"}, {
-                                                  make_tuple(1, "lucas"),
-                                                  make_tuple(2, "holger"),
-                                              });
+  vector<string> schema = {"id", "name", "address"};
+  set<vector<entry>> data = {{1, "lucas", "matchbox"}, {2, "holger", "huxley"}};
 
-  Relation<string> usernames =
-      Project<decltype(users), string>(users, {{"name", "username"}});
+  Relation users(schema, data);
+  users.print();
 
-  tuple<int, string, int> my_tup = make_tuple(1, "lucas", 52);
-  int i = 2;
-  auto skip_2nd = extract_tuple(seq<0, 2>(), my_tup);
-  cout << get<1>(skip_2nd) << "\n";
+  Relation usernames = Project(
+      users, {{"id", "user_id"}, {"name", "username"}, {"address", "office"}});
+  usernames.print();
 
   return 0;
 }

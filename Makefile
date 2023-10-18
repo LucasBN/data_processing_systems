@@ -1,2 +1,2 @@
 main:
-	g++ main.cpp -std=c++17 -o out/main
+	g++ main.cpp -std=c++20 -o out/main
